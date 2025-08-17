@@ -16,7 +16,7 @@ from cards import (
 import pygame
 
 
-@dataclass
+@dataclass(slots=True)
 class RenderingPosition:
     pos: Vector
     coin_bonus: int = 0
@@ -26,7 +26,7 @@ class RenderingPosition:
     size: Vector = field(default_factory=lambda: Vector(CARD_SIZE, CARD_SIZE))
 
 
-@dataclass
+@dataclass(slots=True)
 class NumChoiceRenderingPosition:
     pos: Vector
     num: int
@@ -474,7 +474,7 @@ class Graphics:
                 SCREEN_WIDTH - BORDER_SIZE - CARD_GROUP_WIDTH,
             ]
         ):
-            text_str = f"{game.players[i].point_cards_bought} point {'card' if game.players[i].point_cards_bought else 'cards'}"
+            text_str = f"{game.players[i].point_cards_bought} point {'card' if game.players[i].point_cards_bought == 1 else 'cards'}"
             text = self.font.render(text_str, True, COLOR_BLACK)
             rest_rect = self.font.render("Rest", True, COLOR_BLACK).get_rect()
             canvas.blit(
@@ -538,16 +538,30 @@ class Graphics:
                 )
 
     def get_num_choice_rendering_positions(
-        self, nums: List[int]
+        self, max_repeats: int
     ) -> List[NumChoiceRenderingPosition]:
         mouse_x, mouse_y = pygame.mouse.get_pos()
         positions: List[NumChoiceRenderingPosition] = []
 
-        for i, num in enumerate(nums):
+        for i, num in enumerate(range(1, max_repeats + 1)):
+            if max_repeats <= 5:
+                row_length = max_repeats
+            else:
+                row_length = 5 if i < 5 else max_repeats - 5
+
             x_pos = (
-                SCREEN_WIDTH - len(nums) * (CARD_SIZE) - (len(nums) - 1) * CARD_SPACING
-            ) / 2 + (CARD_SIZE + CARD_SPACING) * i
-            y_pos = (SCREEN_HEIGHT - CARD_SIZE) / 2
+                SCREEN_WIDTH
+                - row_length * (CARD_SIZE)
+                - (row_length - 1) * CARD_SPACING
+            ) / 2 + (CARD_SIZE + CARD_SPACING) * (i % 5)
+            if max_repeats > 5:
+                y_pos = (
+                    (SCREEN_HEIGHT - CARD_SPACING) / 2
+                    - CARD_SIZE
+                    + (CARD_SIZE + CARD_SPACING) * (i // 5)
+                )
+            else:
+                y_pos = (SCREEN_HEIGHT - CARD_SIZE) / 2
             hovered = (
                 x_pos < mouse_x < x_pos + CARD_SIZE
                 and y_pos < mouse_y < y_pos + CARD_SIZE
@@ -560,7 +574,11 @@ class Graphics:
         return positions
 
     def render_num_choice(
-        self, playing: int, nums: List[int], canvas: pygame.Surface
+        self,
+        playing: int,
+        max_repeats: int,
+        discard_nums: List[int],
+        canvas: pygame.Surface,
     ) -> None:
         surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         surface.fill((255, 255, 255, 0))
@@ -571,7 +589,7 @@ class Graphics:
             (0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
         )
 
-        for pos in self.get_num_choice_rendering_positions(nums):
+        for pos in self.get_num_choice_rendering_positions(max_repeats):
             num, pos, hovered = pos.num, pos.pos, pos.hovered
 
             if hovered:
@@ -599,7 +617,13 @@ class Graphics:
                 Vector(pos.x + CARD_SIZE / 4, pos.y + CARD_SIZE / 16),
                 2,
             )
-            text = self.font.render(f"x{num}", True, COLOR_BLACK)
+
+            text_str = (
+                f"x{num}* (-{discard_nums[num - 1]})"
+                if discard_nums[num - 1] > 0
+                else f"x{num}"
+            )
+            text = self.font.render(text_str, True, COLOR_BLACK)
             text_rect = text.get_rect(
                 center=(pos.x + CARD_SIZE / 2, pos.y + 12 * CARD_SIZE / 16)
             )

@@ -10,6 +10,7 @@ CARD_POINT_SILVER_BONUS = 1
 PLAYER_MAX_SPICES = 10
 TRADER_CARD_NUM = 6
 POINT_CARD_NUM = 5
+POINT_CARDS_TO_END_GAME = 6
 
 SPICE_SIZE = 15
 SPICE_SPACING = 2
@@ -111,52 +112,5 @@ TRIPLE_UPGRADE_POSSIBILITIES: List[Tuple[SpiceCollection, List[Spice]]] = [
     ),
     (array("b", (0, 0, 3, 0)), [3, 3, 3]),
 ]
-
-REASONABLE_SPICE_PLACEMENTS: Dict[int, List[Tuple[List[Spice], SpiceCollection]]] = {
-    0: [([], array("b", (0, 0, 0, 0)))],
-    1: [
-        ([1], array("b", (1, 0, 0, 0))),
-        ([2], array("b", (0, 1, 0, 0))),
-        ([3], array("b", (0, 0, 1, 0))),
-        ([4], array("b", (0, 0, 0, 1))),
-    ],
-    2: [
-        ([1, 1], array("b", (2, 0, 0, 0))),
-        ([1, 2], array("b", (1, 1, 0, 0))),
-        ([2, 1], array("b", (1, 1, 0, 0))),
-        ([2, 2], array("b", (0, 2, 0, 0))),
-        ([1, 3], array("b", (1, 0, 1, 0))),
-        ([3, 1], array("b", (1, 0, 1, 0))),
-        ([2, 3], array("b", (0, 1, 1, 0))),
-        ([3, 2], array("b", (0, 1, 1, 0))),
-        ([1, 4], array("b", (1, 0, 0, 1))),
-        ([4, 1], array("b", (1, 0, 0, 1))),
-    ],
-    3: [
-        ([1, 1, 1], array("b", (3, 0, 0, 0))),
-        ([1, 1, 2], array("b", (2, 1, 0, 0))),
-        ([1, 2, 1], array("b", (2, 1, 0, 0))),
-        ([2, 1, 1], array("b", (2, 1, 0, 0))),
-        ([1, 2, 2], array("b", (1, 2, 0, 0))),
-        ([2, 1, 2], array("b", (1, 2, 0, 0))),
-        ([2, 2, 1], array("b", (1, 2, 0, 0))),
-        ([1, 1, 3], array("b", (2, 0, 1, 0))),
-        ([1, 3, 1], array("b", (2, 0, 1, 0))),
-        ([3, 1, 1], array("b", (2, 0, 1, 0))),
-    ],
-    4: [
-        ([1, 1, 1, 1], array("b", (4, 0, 0, 0))),
-        ([1, 1, 1, 2], array("b", (3, 1, 0, 0))),
-        ([1, 1, 2, 1], array("b", (3, 1, 0, 0))),
-        ([1, 2, 1, 1], array("b", (3, 1, 0, 0))),
-        ([2, 1, 1, 1], array("b", (3, 1, 0, 0))),
-    ],
-    5: [
-        (
-            [1, 1, 1, 1, 1],
-            array("b", (5, 0, 0, 0)),
-        )
-    ],
-}
 
 del array

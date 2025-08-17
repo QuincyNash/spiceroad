@@ -1,58 +1,71 @@
 from constants import *
 from pytest_benchmark.fixture import BenchmarkFixture as Benchmark
-from game import Game, PlayerCard
-from moves import PlayMove
-from graphics import Graphics
+from game import Game
 from array import array
-from utils import floor_div
 
 
-def test_game_test(benchmark: Benchmark):
+def test_game_base_moves(benchmark: Benchmark):
     game = Game()
-    # for card_id in range(9, 30):
-    #     game.player2.cards[card_id] = PlayerCard(0)
-
-    # game.all_placement_moves(0, 0)
-
-    benchmark(game.all_placement_moves, 1, 0)
+    benchmark(game.all_base_moves, 0)
 
 
-# def test_game_moves(benchmark: Benchmark):
-#     game = Game()
-#     benchmark(game.all_moves, 0)
+def test_game_placement_moves(benchmark: Benchmark):
+    game = Game()
+    benchmark(game.all_placement_moves, 0, 5)
 
 
-# def test_copy_game_and_make_move(benchmark: Benchmark):
-#     game = Game()
-#     move = game.all_moves(0)[0]
-
-#     def run():
-#         game.copy().make_move(0, move)
-
-#     benchmark(run)
+def test_game_discard_moves(benchmark: Benchmark):
+    game = Game()
+    benchmark(game.all_discard_moves, 0)
 
 
-# def test_game_copy(benchmark: Benchmark):
-#     game = Game()
-#     benchmark(game.copy)
+def test_make_base_move(benchmark: Benchmark):
+    game = Game()
+    games = [game.copy() for _ in range(100000)]
+    games_iter = iter(games)
+    move = game.all_base_moves(0)[4]
+
+    def run(g: Game):
+        g.make_base_move(0, move)
+
+    benchmark.pedantic(
+        lambda: run(next(games_iter)), rounds=len(games) - 100, warmup_rounds=100
+    )
 
 
-# def test_rendering(benchmark: Benchmark):
-#     game = Game()
-#     graphics = Graphics()
-#     benchmark(graphics.get_rendering_positions, game)
+def test_make_placement_move(benchmark: Benchmark):
+    game = Game()
+    games = [game.copy() for _ in range(100000)]
+    games_iter = iter(games)
+    placement = [None, 1, 2, 3, 4]
+
+    def run(g: Game):
+        g.make_placement_move(0, placement)
+
+    benchmark.pedantic(
+        lambda: run(next(games_iter)), rounds=len(games) - 100, warmup_rounds=100
+    )
+
+
+def test_make_discard_move(benchmark: Benchmark):
+    game = Game()
+    games = [game.copy() for _ in range(100000)]
+    games_iter = iter(games)
+    discarding = array("b", (1, 1, 1, 1))
+
+    def run(g: Game):
+        g.make_discard_move(0, discarding)
+
+    benchmark.pedantic(
+        lambda: run(next(games_iter)), rounds=len(games) - 100, warmup_rounds=100
+    )
+
+
+def test_game_copy(benchmark: Benchmark):
+    game = Game()
+    benchmark(game.copy)
+
 
 game = Game()
-game.player1.spices = array("b", (3, 3, 2, 2))
-print(game.all_placement_moves(0, 3))
-
-# total = 0
-# for m in range(1, 6):
-#     for a in range(m + 1):
-#         for b in range(m + 1 - a):
-#             for c in range(m + 1 - a - b):
-#                 d = m - a - b - c
-#                 print(a, b, c, d)
-#                 total += 1
-
-# print(total)
+move = game.all_base_moves(0)[4]
+print(move)

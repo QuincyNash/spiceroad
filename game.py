@@ -2,7 +2,9 @@ from __future__ import annotations
 from typing import List
 from constants import *
 from precomputed import (
+    ALL_DISCARD_POSSIBILITIES,
     ALL_REASONABLE_SPICE_PLACEMENTS,
+    MAX_REASONABLE_INDEX_BUYABLE,
     ALL_DOUBLE_UPGRADE_POSSIBILITIES,
     ALL_TRIPLE_UPGRADE_POSSIBILITIES,
     ALL_NONUPGRADE_PLAY_MOVES,
@@ -13,12 +15,7 @@ from dataclasses import dataclass, field
 from utils import (
     RandomizedSet,
     can_buy,
-    add_array_spices,
     floor_div,
-    sub_array_spices,
-    upgrade_array_spice,
-    add_array_spice,
-    sub_array_spice,
 )
 from cards import (
     ObtainCard,
@@ -30,28 +27,28 @@ from cards import (
     trader_card_ids,
     SpiceCollection,
 )
-from moves import PartialDrawMove, PointMove, DrawMove, PlayMove, Move, PartialPlayMove
+from moves import PointMove, PlayMove, Move
 import random
 from array import array
 
 
-@dataclass
+@dataclass(slots=True)
 class Player:
-    points: int
     spices: SpiceCollection
     cards: Dict[int, PlayerCard]
-    point_cards_bought: int
+    points: int = 0
+    point_cards_bought: int = 0
 
     def copy(self) -> Player:
         return Player(
-            self.points,
             self.spices[:],
             {i: self.cards[i].copy() for i in self.cards},
+            self.points,
             self.point_cards_bought,
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class PlayerCard:
     index: int
     usable: bool = True
@@ -60,7 +57,7 @@ class PlayerCard:
         return PlayerCard(self.index, self.usable)
 
 
-@dataclass
+@dataclass(slots=True)
 class FaceupTraderCard:
     id: int
     spices: SpiceCollection = field(default_factory=lambda: array("b", (0, 0, 0, 0)))
@@ -74,6 +71,7 @@ class Game:
         if seed is not None:
             random.seed(seed)
 
+        self.finished = False
         self.point_card_stack = RandomizedSet(point_card_ids)
         self.trader_card_stack = RandomizedSet(trader_card_ids)
         self.coins = [4, 4]
@@ -85,10 +83,10 @@ class Game:
         ]
 
         self.player1 = Player(
-            0, array("b", (3, 0, 0, 0)), {5: PlayerCard(0), 6: PlayerCard(1)}, 0
+            array("b", (3, 0, 0, 0)), {5: PlayerCard(0), 6: PlayerCard(1)}
         )
         self.player2 = Player(
-            0, array("b", (3, 3, 2, 2)), {7: PlayerCard(0), 8: PlayerCard(1)}, 0
+            array("b", (4, 0, 0, 0)), {7: PlayerCard(0), 8: PlayerCard(1)}
         )
 
         self.point_card_stack.remove_many(self.point_cards)
@@ -101,6 +99,7 @@ class Game:
     def copy(self) -> Game:
         game = Game.__new__(Game)
 
+        game.finished = self.finished
         game.point_card_stack = self.point_card_stack.copy()
         game.trader_card_stack = self.trader_card_stack.copy()
         game.coins = self.coins[:]
@@ -113,64 +112,6 @@ class Game:
 
         return game
 
-    def create_rest_move(self, turn: int) -> PlayMove:
-        return PlayMove(PLAYER_REST[turn])
-
-    def create_upgrade_move(
-        self, partial_move: PartialPlayMove, spice: Spice
-    ) -> PlayMove:
-        return PlayMove(partial_move.playing, 1, [spice])
-
-    def create_draw_move(
-        self, partial_move: PartialDrawMove, spices: List[Spice]
-    ) -> DrawMove:
-        num_blanks = (
-            0 if partial_move.placing is None else len(partial_move.placing) - 1
-        )
-
-        placing: List[Union[Spice, None]] = [None for _ in range(num_blanks)]
-        placing.extend(spices)
-
-        return DrawMove(partial_move.draw_index, placing)
-
-    def create_full_play_move(
-        self, partial_move: PartialPlayMove, num: int
-    ) -> PlayMove:
-        return PlayMove(partial_move.playing, num)
-
-    def find_point_move(self, index: int, moves: List[Move]) -> Union[PointMove, None]:
-        for move in moves:
-            if isinstance(move, PointMove) and move.buy_index == index:
-                return move
-
-    def find_draw_move(
-        self, index: int, moves: List[Move]
-    ) -> Union[DrawMove, Tuple[PartialDrawMove, List[DrawMove]]]:
-        found: List[DrawMove] = []
-        for move in moves:
-            if isinstance(move, DrawMove) and move.draw_index == index:
-                found.append(move)
-
-        if len(found) == 1:
-            return found[0]
-        return (PartialDrawMove(draw_index=index), found)
-
-    def find_play_move(
-        self, id: int, moves: List[Move]
-    ) -> Union[PlayMove, Tuple[PartialPlayMove, List[PlayMove]], None]:
-        found: List[PlayMove] = []
-        for move in moves:
-            if isinstance(move, PlayMove) and move.playing == id:
-                if isinstance(trader_cards[id], ObtainCard):
-                    return move
-                found.append(move)
-
-        if len(found) == 1:
-            return found[0]
-        if isinstance(trader_cards[id], UpgradeCard):
-            return PartialPlayMove(id, num=1), found
-        return PartialPlayMove(id, spice_upgrades=[]), found
-
     def coin_bonus(self, index: int) -> int:
         if index == 0 and self.coins[0] > 0:
             return CARD_POINT_GOLD_BONUS
@@ -180,7 +121,15 @@ class Game:
             return CARD_POINT_SILVER_BONUS
         return 0
 
-    def all_base_moves(self, player_id: int) -> List[Move]:
+    def max_repeats(self, player_id: int, card_id: int) -> int:
+        card = trader_cards[card_id]
+        if isinstance(card, TradeCard):
+            return floor_div(self.players[player_id].spices, card.old)
+        return 1
+
+    def all_base_moves(
+        self, player_id: int, *, allow_all_placements=False
+    ) -> List[Move]:
         moves: List[Move] = [ALL_REST_MOVES[player_id]]
         player = self.players[player_id]
 
@@ -191,95 +140,87 @@ class Game:
         for id, player_card in player.cards.items():
             if player_card.usable:
                 card = trader_cards[id]
-                if isinstance(card, ObtainCard):
-                    moves.extend(ALL_NONUPGRADE_PLAY_MOVES[card.id][1])
-                elif isinstance(card, TradeCard):
-                    moves.extend(
-                        ALL_NONUPGRADE_PLAY_MOVES[card.id][
-                            floor_div(player.spices, card.old)
-                        ]
-                    )
-                else:
+                if isinstance(card, UpgradeCard):
                     conversions = (
                         ALL_DOUBLE_UPGRADE_POSSIBILITIES
                         if card.num_conversions == 2
                         else ALL_TRIPLE_UPGRADE_POSSIBILITIES
                     )
                     moves.extend(conversions[card.id][tuple(player.spices)])
+                else:
+                    moves.extend(
+                        ALL_NONUPGRADE_PLAY_MOVES[card.id][
+                            self.max_repeats(player_id, id)
+                        ]
+                    )
 
         if len(player.cards) < PLAYER_MAX_CARDS:
-            num_cards_buyable = max(sum(player.spices), TRADER_CARD_NUM - 1)
+            if allow_all_placements:
+                num_cards_buyable = min(sum(player.spices), TRADER_CARD_NUM - 1)
+            else:
+                num_cards_buyable = MAX_REASONABLE_INDEX_BUYABLE[tuple(player.spices)]
             moves.extend(ALL_DRAW_MOVES[num_cards_buyable])
 
         return moves
 
     def all_placement_moves(self, player_id: int, index: int) -> List[List[Spice]]:
-        spice_placements = ALL_REASONABLE_SPICE_PLACEMENTS[
-            tuple(self.players[player_id].spices)
+        return ALL_REASONABLE_SPICE_PLACEMENTS[tuple(self.players[player_id].spices)][
+            index
         ]
-        return spice_placements[index]
 
-    def all_moves(self, player_id: int) -> List[Move]:
-        moves: List[Move] = []
+    def one_spice_type(self, player_id: int) -> bool:
+        a = self.players[player_id].spices
+        return (a[0] == 0) + (a[1] == 0) + (a[2] == 0) + (a[3] == 0) == 3
+
+    def only_spice_type(self, player_id: int) -> Spice:
+        a = self.players[player_id].spices
+        if a[0] > 0:
+            return 1
+        elif a[1] > 0:
+            return 2
+        elif a[2] > 0:
+            return 3
+        else:
+            return 4
+
+    def needs_to_discard(self, player_id: int) -> bool:
+        return sum(self.players[player_id].spices) > PLAYER_MAX_SPICES
+
+    def discard_simple(self, player_id: int) -> SpiceCollection:
+        spice = self.only_spice_type(player_id)
+        num = sum(self.players[player_id].spices) - PLAYER_MAX_SPICES
+        return array("b", (num if i == spice - 1 else 0 for i in range(4)))
+
+    def discard_array(self, spice: Spice) -> SpiceCollection:
+        return array("b", (1 if i == spice - 1 else 0 for i in range(4)))
+
+    def discard_nums(self, player_id: int, card_id: int) -> List[int]:
+        card = trader_cards[card_id]
+        spice_count = sum(self.players[player_id].spices)
+        nums = [
+            max(spice_count + card.spice_delta * i - PLAYER_MAX_SPICES, 0)
+            for i in range(1, PLAYER_MAX_SPICES + 1)
+        ]
+        return nums
+
+    def all_discard_moves(self, player_id: int) -> List[SpiceCollection]:
+        return ALL_DISCARD_POSSIBILITIES.get(tuple(self.players[player_id].spices), [])
+
+    def make_base_move(self, player_id: int, move: Move) -> None:
         player = self.players[player_id]
-        num_player_spices = sum(player.spices)
-
-        for i, card_id in enumerate(self.point_cards):
-            card = point_cards[card_id]
-
-            if can_buy(player.spices, card.spices):
-                moves.append(PointMove(i, self.coin_bonus(i)))
-
-        all_cards_usable = True
-        for id, player_card in player.cards.items():
-            if player_card.usable:
-                card = trader_cards[id]
-                if isinstance(card, ObtainCard):
-                    if num_player_spices + card.spice_delta <= PLAYER_MAX_SPICES:
-                        moves.append(PlayMove(card.id))
-                elif isinstance(card, TradeCard):
-                    num_conversions = 1
-                    while (
-                        num_player_spices + num_conversions * card.spice_delta
-                        <= PLAYER_MAX_SPICES
-                        and all(
-                            player.spices[i] >= card.old[i] * num_conversions
-                            for i in range(4)
-                        )
-                    ):
-                        moves.append(PlayMove(card.id, num_conversions))
-                        num_conversions += 1
-                else:
-                    conversions = (
-                        ALL_DOUBLE_UPGRADE_POSSIBILITIES
-                        if card.num_conversions == 2
-                        else ALL_TRIPLE_UPGRADE_POSSIBILITIES
-                    )
-                    moves.extend(conversions[card.id][tuple(player.spices)])
-            else:
-                all_cards_usable = False
-
-        if len(player.cards) < PLAYER_MAX_CARDS:
-            spice_placements = ALL_REASONABLE_SPICE_PLACEMENTS[tuple(player.spices)]
-            for i, card in enumerate(self.trader_cards):
-                spice_delta = sum(card.spices) - i
-                if num_player_spices + spice_delta <= PLAYER_MAX_SPICES:
-                    for comb_list in spice_placements[i]:
-                        moves.append(DrawMove(i, comb_list))  # type: ignore
-
-        if not all_cards_usable or len(moves) == 0:
-            moves.append(PlayMove(PLAYER_REST[player_id]))
-
-        return moves
-
-    def make_move(self, player_id: int, move: Move, *, is_partial=False) -> None:
-        player = self.players[player_id]
+        player_spices = self.players[player_id].spices
 
         if isinstance(move, PointMove):
             card = point_cards[self.point_cards[move.buy_index]]
+            card_spices = card.spices
             player.points += card.points + move.bonus_points
             player.point_cards_bought += 1
-            sub_array_spices(player.spices, card.spices)
+
+            player_spices[0] -= card_spices[0]
+            player_spices[1] -= card_spices[1]
+            player_spices[2] -= card_spices[2]
+            player_spices[3] -= card_spices[3]
+
             self.point_cards.pop(move.buy_index)
             self.point_cards.append(self.point_card_stack.pop_random())
 
@@ -288,49 +229,77 @@ class Game:
             elif move.bonus_points == CARD_POINT_SILVER_BONUS:
                 self.coins[1] -= 1
 
+            if player.point_cards_bought == POINT_CARDS_TO_END_GAME:
+                self.finished = True
+                for p in self.players:
+                    spices = p.spices
+                    p.points += spices[1] + spices[2] + spices[3]
+
         elif isinstance(move, PlayMove):
-            if move.playing in PLAYER_REST:
+            move_playing = move.playing
+            if move_playing in PLAYER_REST:
                 for card in player.cards.values():
                     card.usable = True
                 return
 
-            card = trader_cards[move.playing]
+            card = trader_cards[move_playing]
 
             if isinstance(card, ObtainCard):
-                add_array_spices(player.spices, card.new)
+                card_new = card.new
+                player_spices[0] += card_new[0]
+                player_spices[1] += card_new[1]
+                player_spices[2] += card_new[2]
+                player_spices[3] += card_new[3]
             elif isinstance(card, TradeCard):
-                add_array_spices(
-                    player.spices,
-                    array(
-                        "b",
-                        (
-                            move.num * (card.new[0] - card.old[0]),
-                            move.num * (card.new[1] - card.old[1]),
-                            move.num * (card.new[2] - card.old[2]),
-                            move.num * (card.new[3] - card.old[3]),
-                        ),
-                    ),
-                )
+                card_new = card.new
+                card_old = card.old
+                move_num = move.num
+                player_spices[0] += move_num * (card_new[0] - card_old[0])
+                player_spices[1] += move_num * (card_new[1] - card_old[1])
+                player_spices[2] += move_num * (card_new[2] - card_old[2])
+                player_spices[3] += move_num * (card_new[3] - card_old[3])
             else:
                 for spice in move.spice_upgrades:
-                    upgrade_array_spice(player.spices, spice)
+                    player_spices[spice - 1] -= 1
+                    player_spices[spice] += 1
 
-            if not is_partial:
-                player.cards[move.playing].usable = False
+            player.cards[move_playing].usable = False
 
         else:
-            for i, spice in enumerate(move.placing):
-                if spice is not None:
-                    add_array_spice(self.trader_cards[i].spices, spice)
-                    sub_array_spice(player.spices, spice)
+            player_trader_cards = self.trader_cards
+            card = player_trader_cards[move.draw_index]
+            card_spices = card.spices
+            player_cards = player.cards
 
-            if not is_partial:
-                card = self.trader_cards[move.draw_index]
+            player_spices[0] += card_spices[0]
+            player_spices[1] += card_spices[1]
+            player_spices[2] += card_spices[2]
+            player_spices[3] += card_spices[3]
 
-                add_array_spices(player.spices, card.spices)
+            player_trader_cards.pop(move.draw_index)
+            new_card = self.trader_card_stack.pop_random()
+            player_trader_cards.append(FaceupTraderCard(new_card))
 
-                self.trader_cards.pop(move.draw_index)
-                new_card = self.trader_card_stack.pop_random()
-                self.trader_cards.append(FaceupTraderCard(new_card))
+            player_cards[card.id] = PlayerCard(len(player_cards))
 
-                player.cards[card.id] = PlayerCard(len(player.cards))
+    def make_placement_move(
+        self, player_id: int, placing: List[Union[Spice, None]]
+    ) -> None:
+        player_spices = self.players[player_id].spices
+        player_trader_cards = self.trader_cards
+        for i, spice in enumerate(placing):
+            if spice is not None:
+                player_trader_cards[i].spices[spice - 1] += 1
+                player_spices[spice - 1] -= 1
+
+    def make_upgrade_move(self, player_id: int, spices: List[Spice]) -> None:
+        for spice in spices:
+            self.players[player_id].spices[spice - 1] -= 1
+            self.players[player_id].spices[spice] += 1
+
+    def make_discard_move(self, player_id: int, discarding: SpiceCollection) -> None:
+        player_spices = self.players[player_id].spices
+        player_spices[0] -= discarding[0]
+        player_spices[1] -= discarding[1]
+        player_spices[2] -= discarding[2]
+        player_spices[3] -= discarding[3]

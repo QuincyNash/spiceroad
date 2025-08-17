@@ -68,12 +68,18 @@ class RandomizedSet(object):
         for item in items:
             self.remove(item)
 
-    def random(self) -> int:
-        return random.choice(self.items)
-
     def pop_random(self) -> int:
-        choice = self.random()
-        self.remove(choice)
+        index = random.randint(0, len(self.items) - 1)
+        items = self.items
+        choice = items[index]
+
+        last_item = items.pop()
+        if index != len(items):
+            items[index] = last_item
+            self.item_to_position[last_item] = index
+
+        del self.item_to_position[choice]
+
         return choice
 
 
@@ -112,23 +118,3 @@ def add_array_spices(a: SpiceCollection, b: SpiceCollection) -> None:
     a[1] += b[1]
     a[2] += b[2]
     a[3] += b[3]
-
-
-def sub_array_spices(a: SpiceCollection, b: SpiceCollection) -> None:
-    a[0] -= b[0]
-    a[1] -= b[1]
-    a[2] -= b[2]
-    a[3] -= b[3]
-
-
-def add_array_spice(spices: SpiceCollection, spice: Spice) -> None:
-    spices[spice - 1] += 1
-
-
-def sub_array_spice(spices: SpiceCollection, spice: Spice) -> None:
-    spices[spice - 1] -= 1
-
-
-def upgrade_array_spice(spices: SpiceCollection, spice: Spice) -> None:
-    spices[spice - 1] -= 1
-    spices[spice] += 1

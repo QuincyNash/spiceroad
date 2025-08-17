@@ -2,13 +2,42 @@ import time
 from typing import Dict, List
 from constants import *
 from collections import Counter
-from itertools import combinations_with_replacement
+from itertools import combinations_with_replacement, product
 from utils import can_buy, floor_div, add_array_spices
 from moves import PlayMove, DrawMove
 from cards import trader_cards, ObtainCard, TradeCard, UpgradeCard
 from array import array
 
 
+REASONABLE_SPICE_PLACEMENTS: Dict[int, List[Tuple[List[Spice], SpiceCollection]]] = {}
+for total in range(6):
+    possibilities: List[Tuple[List[Spice], SpiceCollection]] = []
+
+    for spice_list in product(SPICES, repeat=total):
+        spice_list = list(spice_list)
+        spice_counter = Counter(spice_list)
+        spice_array = array(
+            "b",
+            (
+                spice_counter[1],
+                spice_counter[2],
+                spice_counter[3],
+                spice_counter[4],
+            ),
+        )
+        if (
+            spice_array[0]
+            + 2 * spice_array[1]
+            + 3 * spice_array[2]
+            + 4 * spice_array[3]
+            <= 8
+        ):
+            possibilities.append((spice_list, spice_array))
+
+    REASONABLE_SPICE_PLACEMENTS[total] = possibilities
+
+
+MAX_REASONABLE_INDEX_BUYABLE: Dict[Tuple[int, int, int, int], int] = {}
 ALL_REASONABLE_SPICE_PLACEMENTS: Dict[
     Tuple[int, int, int, int],
     Dict[int, List[List[Spice]]],
@@ -28,9 +57,13 @@ for i in range(11):
 
         for i2 in range(6):
             possible[i2] = []
+            flag = False
             for comb_list, comb_tuple in REASONABLE_SPICE_PLACEMENTS[i2]:
                 if can_buy(array("b", spice_tuple), comb_tuple):
+                    flag = True
                     possible[i2].append(comb_list)
+            if flag:
+                MAX_REASONABLE_INDEX_BUYABLE[spice_tuple] = i2
 
         ALL_REASONABLE_SPICE_PLACEMENTS[spice_tuple] = possible
 
@@ -76,7 +109,7 @@ for i in range(11):
 
                         a_max, b_max, c_max, d_max = spice_array
                         total = sum(spice_array)
-                        need_to_discard = min(max(total - 10, 0), 5)
+                        need_to_discard = min(max(total - PLAYER_MAX_SPICES, 0), 5)
 
                         results: List[SpiceCollection] = []
                         if need_to_discard > 0:
@@ -94,16 +127,14 @@ for i in range(11):
                                                 )
                                             )
 
-                        ALL_DISCARD_POSSIBILITIES[
-                            (
-                                spice_array[0],
-                                spice_array[1],
-                                spice_array[2],
-                                spice_array[3],
-                            )
-                        ] = results
-
-print(ALL_DISCARD_POSSIBILITIES[(2, 3, 11, 0)])
+                            ALL_DISCARD_POSSIBILITIES[
+                                (
+                                    spice_array[0],
+                                    spice_array[1],
+                                    spice_array[2],
+                                    spice_array[3],
+                                )
+                            ] = results
 
 
 ALL_DOUBLE_UPGRADE_POSSIBILITIES: Dict[
@@ -187,6 +218,6 @@ for card in trader_cards.values():
 
 ALL_DRAW_MOVES: Dict[int, List[DrawMove]] = {}
 for i in range(TRADER_CARD_NUM):
-    ALL_DRAW_MOVES[i] = [DrawMove(j, []) for j in range(i + 1)]
+    ALL_DRAW_MOVES[i] = [DrawMove(j) for j in range(i + 1)]
 
 ALL_REST_MOVES = [PlayMove(PLAYER_REST[0]), PlayMove(PLAYER_REST[1])]

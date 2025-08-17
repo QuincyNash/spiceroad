@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from array import array
 
 
-@dataclass
+@dataclass(slots=True)
 class TradeCard:
     old: SpiceCollection
     new: SpiceCollection
@@ -15,7 +15,7 @@ class TradeCard:
     spices: SpiceCollection = field(default_factory=lambda: array("b", (0, 0, 0, 0)))
 
 
-@dataclass
+@dataclass(slots=True)
 class ObtainCard:
     new: SpiceCollection
     id: int
@@ -25,7 +25,7 @@ class ObtainCard:
     spices: SpiceCollection = field(default_factory=lambda: array("b", (0, 0, 0, 0)))
 
 
-@dataclass
+@dataclass(slots=True)
 class UpgradeCard:
     num_conversions: int
     id: int
@@ -349,7 +349,7 @@ trader_cards: Dict[int, TraderCard] = {card.id: card for card in _trader_cards}
 trader_card_ids = [card.id for card in _trader_cards]
 
 
-@dataclass
+@dataclass(slots=True)
 class PointCard:
     spices: SpiceCollection
     points: int

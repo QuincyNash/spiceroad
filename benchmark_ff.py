@@ -1,57 +1,56 @@
 import time
 import torch
-import torch.backends
 import torch.nn as nn
-from fastfeedforward import FFF
-
 
 # Parameters
-input_size = 700
-output_size = 200
+input_size = 218
 num_runs = 100000
+
+# Use all available CPU threads
+torch.set_num_threads(torch.get_num_threads())
 
 
 class TraditionalFF(nn.Module):
     def __init__(self):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, 200),
-        )
+        self.fc1 = nn.Linear(input_size, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 209)
 
     def forward(self, x):
-        return self.net(x)
+        x = torch.relu(self.fc1(x))
+        y = torch.relu(self.fc2(x))
+        z = torch.relu(self.fc3(x))
+        return self.fc4(z)
 
 
 def benchmark_model(model, input_tensor, runs):
     model.eval()
-    with torch.no_grad():
+
+    scripted_model = torch.jit.script(model)
+
+    # Warmup
+    with torch.inference_mode():
         for _ in range(100):
-            _ = model(input_tensor)
+            _ = scripted_model(input_tensor)
 
         start = time.time()
         for _ in range(runs):
-            _ = model(input_tensor)
+            _ = scripted_model(input_tensor)
         end = time.time()
 
-    total = runs
-    duration = end - start
+    fps = runs / (end - start)
     print(
-        f"{model.__class__.__name__} on {input_tensor.device}: {total/duration:.2f} inferences/sec"
+        f"{model.__class__.__name__} on {input_tensor.device}: {fps:.2f} inferences/sec"
     )
 
 
 def main():
     device = torch.device("cpu")
-
     input_tensor = torch.randn(1, input_size).to(device)
 
     traditional = TraditionalFF().to(device)
-
-    print("Benchmarking models:")
     benchmark_model(traditional, input_tensor, num_runs)
 
 

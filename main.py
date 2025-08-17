@@ -2,7 +2,7 @@ from constants import *
 from typing import cast, List
 from cards import point_cards, trader_cards, UpgradeCard
 from game import Game, Spice
-from moves import DrawMove, PartialDrawMove, PartialPlayMove, PlayMove
+from moves import PointMove, DrawMove, PlayMove
 from animation import Animation
 from graphics import Graphics
 import pygame
@@ -11,41 +11,49 @@ game = Game()
 graphics = Graphics()
 canvas, clock = graphics.init()
 
-animation: Union[Animation, None] = None
 quit = False
-partial_move: Union[PartialPlayMove, PartialDrawMove, None] = None
-possibilities: Union[List[PlayMove], List[DrawMove], None] = None
+animation: Union[Animation, None] = None
+state: Union[
+    Literal["main"],
+    Literal["num"],
+    Literal["placement"],
+    Literal["upgrade"],
+    Literal["discard"],
+] = "main"
+active_card: Union[int, None] = None
+draw_index: Union[int, None] = None
+placement_index: Union[int, None] = None
+upgraded_count: Union[int, None] = None
+game_finished: bool = False
 
 turn = 0
 
+
+def discard_if_needed():
+    global state
+
+    if game.needs_to_discard(turn) and game.one_spice_type(turn):
+        game.make_discard_move(turn, game.discard_simple(turn))
+        state = "main"
+    else:
+        state = "discard" if game.needs_to_discard(turn) else "main"
+
+
 while not quit:
-    game_moves = game.all_moves(turn)
-    selecting_spices = (
-        turn
-        if partial_move
-        and (isinstance(partial_move, PartialDrawMove) or partial_move.num is not None)
-        else None
-    )
+    if state == "main" and not game_finished:
+        game_moves = game.all_base_moves(turn, allow_all_placements=True)
+    else:
+        game_moves = []
+
+    selecting_spices = turn if state in ["placement", "upgrade", "discard"] else None
 
     allowed_spices: List[Spice] = SPICES
-    if isinstance(partial_move, PartialPlayMove):
+    if state == "upgrade":
         allowed_spices: List[Spice] = [1, 2, 3]
-    elif isinstance(partial_move, PartialDrawMove) and possibilities is not None:
-        moves = [move for move in possibilities if isinstance(move, DrawMove)]
-        spice_number = (
-            len(partial_move.placing) if partial_move.placing is not None else 0
-        )
-        allowed_spices: List[Spice] = list(
-            set(
-                (move.placing[spice_number] if spice_number < len(move.placing) else 1)
-                for move in moves
-            )
-        )  # type:ignore
-        print(allowed_spices)
 
     spice_positions, card_positions = graphics.get_rendering_positions(
         game,
-        game_moves if partial_move is None else [],
+        game_moves,
         selecting_spices=selecting_spices,
         allowed_spices=allowed_spices,
     )
@@ -53,137 +61,46 @@ while not quit:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             quit = True
-        if not animation and event.type == pygame.MOUSEBUTTONUP:
-            if partial_move is not None and possibilities is not None:
-                if (
-                    isinstance(partial_move, PartialPlayMove)
-                    and partial_move.num is None
-                ):
-                    positions = graphics.get_num_choice_rendering_positions(
-                        [
-                            poss.num
-                            for poss in possibilities
-                            if isinstance(poss, PlayMove)
-                        ]
-                    )
-                    for position in positions:
-                        if position.hovered:
-                            game_copy = game.copy()
-                            move = game.create_full_play_move(
-                                partial_move, position.num
-                            )
-                            game.make_move(turn, move)
-                            animation = Animation(
-                                game_copy, game, move, canvas, clock, graphics
-                            )
-                elif isinstance(partial_move, PartialPlayMove):
-                    for spice in SPICES:
-                        for position in spice_positions[spice]:
-                            if position.hovered:
-                                game_copy = game.copy()
-                                if not partial_move.spice_upgrades:
-                                    partial_move.spice_upgrades = [spice]
-                                else:
-                                    partial_move.spice_upgrades.append(spice)
-
-                                card = trader_cards[partial_move.playing]
-                                is_partial = (
-                                    card.num_conversions
-                                    != len(partial_move.spice_upgrades)
-                                    if isinstance(card, UpgradeCard)
-                                    else False
-                                )
-
-                                move = game.create_upgrade_move(partial_move, spice)
-                                game.make_move(turn, move, is_partial=is_partial)
-                                animation = Animation(
-                                    game_copy, game, move, canvas, clock, graphics
-                                )
-                elif isinstance(partial_move, PartialDrawMove):
-                    for spice in SPICES:
-                        for position in spice_positions[spice]:
-                            if position.hovered:
-                                draw_moves = [
-                                    move
-                                    for move in possibilities
-                                    if isinstance(move, DrawMove)
-                                ]
-                                game_copy = game.copy()
-                                if not partial_move.placing:
-                                    partial_move.placing = [spice]
-                                else:
-                                    partial_move.placing.append(spice)
-
-                                possibilities = [
-                                    poss
-                                    for poss in possibilities
-                                    if isinstance(poss, DrawMove)
-                                    and poss.placing[len(partial_move.placing) - 1]
-                                    == partial_move.placing[-1]
-                                ]
-
-                                if len(possibilities) == 1:
-                                    placing = cast(
-                                        List[Spice], possibilities[0].placing
-                                    )
-                                    move = game.create_draw_move(
-                                        partial_move,
-                                        placing[len(partial_move.placing) - 1 :],
-                                    )
-                                    game.make_move(turn, move)
-                                    animation = Animation(
-                                        game_copy,
-                                        game,
-                                        move,
-                                        canvas,
-                                        clock,
-                                        graphics,
-                                    )
-                                else:
-                                    is_partial = len(draw_moves[0].placing) != len(
-                                        partial_move.placing
-                                    )
-
-                                    move = game.create_draw_move(partial_move, [spice])
-                                    game.make_move(turn, move, is_partial=is_partial)
-                                    animation = Animation(
-                                        game_copy, game, move, canvas, clock, graphics
-                                    )
-            else:
+        if not animation and not game_finished and event.type == pygame.MOUSEBUTTONUP:
+            if state == "main":
                 for id, position in card_positions.items():
                     if position.hovered:
                         if id in point_cards:
-                            index = 0
                             for i, card in enumerate(game.point_cards):
                                 if card == id:
                                     index = i
 
-                            move = game.find_point_move(index, game_moves)
-                            if move:
-                                game_copy = game.copy()
-                                game.make_move(turn, move)
-                                animation = Animation(
-                                    game_copy, game, move, canvas, clock, graphics
-                                )
-
-                        elif id in game.players[turn].cards:
-                            move = game.find_play_move(id, game_moves)
-                            if isinstance(move, PlayMove):
-                                game_copy = game.copy()
-                                game.make_move(turn, move)
-                                animation = Animation(
-                                    game_copy, game, move, canvas, clock, graphics
-                                )
-                            elif move is not None:
-                                partial_move, possibilities = move
-
-                        elif id in PLAYER_REST:
-                            move = game.create_rest_move(turn)
+                            move = PointMove(index, game.coin_bonus(index))
                             game_copy = game.copy()
-                            game.make_move(turn, move)
+                            game.make_base_move(turn, move)
                             animation = Animation(
                                 game_copy, game, move, canvas, clock, graphics
                             )
+                        elif id in PLAYER_REST:
+                            move = PlayMove(PLAYER_REST[turn])
+                            game_copy = game.copy()
+                            game.make_base_move(turn, move)
+                            animation = Animation(
+                                game_copy, game, move, canvas, clock, graphics
+                            )
+                        elif id in game.players[turn].cards:
+                            max_repeats = game.max_repeats(turn, id)
+                            card = trader_cards[id]
+                            if not isinstance(card, UpgradeCard) and max_repeats == 1:
+                                move = PlayMove(id)
+                                game_copy = game.copy()
+                                game.make_base_move(turn, move)
+                                discard_if_needed()
+                                animation = Animation(
+                                    game_copy, game, move, canvas, clock, graphics
+                                )
+                            else:
+                                active_card = id
+                                if isinstance(card, UpgradeCard):
+                                    state = "upgrade"
+                                    upgraded_count = 0
+                                else:
+                                    state = "num"
 
                         else:
                             index = 0
@@ -191,52 +108,123 @@ while not quit:
                                 if card.id == id:
                                     index = i
 
-                            move = game.find_draw_move(index, game_moves)
-                            if isinstance(move, DrawMove):
+                            if index == 0 or game.one_spice_type(turn):
+                                move = DrawMove(index)
                                 game_copy = game.copy()
-                                game.make_move(turn, move)
+                                placement_type = game.only_spice_type(turn)
+                                game.make_placement_move(turn, [placement_type] * index)
+                                game.make_base_move(turn, move)
+                                discard_if_needed()
                                 animation = Animation(
                                     game_copy, game, move, canvas, clock, graphics
                                 )
                             else:
-                                partial_move, possibilities = move
+                                state = "placement"
+                                draw_index = index
+                                placement_index = 0
+
+                        break
+
+            elif state == "num" and active_card is not None:
+                max_repeats = game.max_repeats(turn, active_card)
+                for position in graphics.get_num_choice_rendering_positions(
+                    max_repeats
+                ):
+                    if position.hovered:
+                        move = PlayMove(active_card, position.num)
+                        game_copy = game.copy()
+                        game.make_base_move(turn, move)
+                        discard_if_needed()
+                        animation = Animation(
+                            game_copy, game, move, canvas, clock, graphics
+                        )
+                        break
+
+            elif (
+                state == "upgrade"
+                and active_card is not None
+                and upgraded_count is not None
+            ):
+                for spice in SPICES:
+                    for position in spice_positions[spice]:
+                        if position.hovered:
+                            game_copy = game.copy()
+                            card = cast(UpgradeCard, trader_cards[active_card])
+                            upgraded_count += 1
+
+                            move = PlayMove(active_card, spice_upgrades=[spice])
+                            if upgraded_count == card.num_conversions:
+                                game.make_base_move(turn, move)
+                                state = "main"
+                            else:
+                                game.make_upgrade_move(turn, [spice])
+                            animation = Animation(
+                                game_copy, game, move, canvas, clock, graphics
+                            )
+
+            elif (
+                state == "placement"
+                and draw_index is not None
+                and placement_index is not None
+            ):
+                for spice in SPICES:
+                    for position in spice_positions[spice]:
+                        if position.hovered:
+                            game_copy = game.copy()
+                            placement_index += 1
+
+                            placing: List[Union[Spice, None]] = [
+                                None for _ in range(placement_index - 1)
+                            ]
+                            placing.append(spice)
+                            game.make_placement_move(turn, placing)
+
+                            move = DrawMove(draw_index)
+                            if placement_index == draw_index:
+                                game.make_base_move(turn, move)
+                                discard_if_needed()
+
+                            animation = Animation(
+                                game_copy, game, move, canvas, clock, graphics
+                            )
+
+            elif state == "discard":
+                for spice in SPICES:
+                    for position in spice_positions[spice]:
+                        if position.hovered:
+                            game_copy = game.copy()
+                            game.make_discard_move(turn, game.discard_array(spice))
+                            if game.needs_to_discard(turn) and game.one_spice_type(
+                                turn
+                            ):
+                                game.make_discard_move(turn, game.discard_simple(turn))
+                                state = "main"
+                            else:
+                                state = (
+                                    "discard" if game.needs_to_discard(turn) else "main"
+                                )
+                            animation = Animation(
+                                game_copy, game, move, canvas, clock, graphics
+                            )
 
     if animation and not animation.finished:
         animation.update()
         animation.render()
     else:
         if animation:
-            finished = True
-            if (
-                isinstance(partial_move, PartialPlayMove)
-                and partial_move.spice_upgrades is not None
-            ):
-                card = trader_cards[partial_move.playing]
-                if isinstance(card, UpgradeCard):
-                    if card.num_conversions != len(partial_move.spice_upgrades):
-                        finished = False
-            if isinstance(partial_move, PartialDrawMove) and possibilities is not None:
-                draw_moves = [
-                    move for move in possibilities if isinstance(move, DrawMove)
-                ]
-                if partial_move.placing is None or len(partial_move.placing) != len(
-                    draw_moves[0].placing
-                ):
-                    finished = False
-
             animation = None
-            if finished:
+            if state == "main":
+                if game.finished:
+                    game_finished = True
                 turn = (turn + 1) % 2
-                partial_move, possibilities = None, None
+                active_card, draw_index, placement_index, upgraded_count = [None] * 4
 
         graphics.render(game, canvas, (spice_positions, card_positions))
-        if (
-            isinstance(partial_move, PartialPlayMove)
-            and partial_move.num is None
-            and possibilities is not None
-        ):
-            nums = [poss.num for poss in possibilities if isinstance(poss, PlayMove)]
-            graphics.render_num_choice(partial_move.playing, nums, canvas)
+        if state == "num" and active_card is not None:
+            discard_nums = game.discard_nums(turn, active_card)
+            graphics.render_num_choice(
+                active_card, game.max_repeats(turn, active_card), discard_nums, canvas
+            )
 
     pygame.display.flip()
     clock.tick(FPS)
